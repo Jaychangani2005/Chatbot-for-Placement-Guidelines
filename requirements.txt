@@ -1,0 +1,12 @@
+streamlit
+python-dotenv
+langchain
+langchain-core
+langchain-community
+langchain-huggingface
+langchain-text-splitters
+langgraph
+langgraph-checkpoint-sqlite
+faiss-cpu
+sentence-transformers
+huggingface-hub

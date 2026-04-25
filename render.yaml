@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: charusat-placement-assistant
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run streamlit_frontend_database.py --server.address 0.0.0.0 --server.port $PORT --server.headless true
+    envVars:
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_MODEL_ID
+        value: meta-llama/Llama-3.1-8B-Instruct
+      - key: CHATBOT_DB_PATH
+        value: /opt/render/project/src/chatbot.db

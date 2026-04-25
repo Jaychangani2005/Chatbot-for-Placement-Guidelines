@@ -1,0 +1,20 @@
+# Python artifacts
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local databases and SQLite sidecar files
+*.db-shm
+*.db-wal
+
+# Streamlit cache
+.streamlit/secrets.toml
