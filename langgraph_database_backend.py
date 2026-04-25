@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_huggingface import ChatHuggingFace, HuggingFaceEmbeddings, HuggingFaceEndpoint
+from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
@@ -27,6 +27,7 @@ llm = ChatHuggingFace(llm=endpoint)
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 DB_PATH = Path(os.getenv("CHATBOT_DB_PATH", str(BASE_DIR / "chatbot.db")))
+ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".rst", ".csv", ".json"}
 # DEFAULT_SYSTEM_PROMPT = (
 #     "You are CHARUSAT Placement Guidelines Assistant. Answer only using the provided "
@@ -85,6 +86,10 @@ def _build_retriever_from_documents(documents: list[Document]):
     if not documents:
         return None
 
+    # Import here to avoid loading sentence-transformers/torch on cold start
+    # when RAG is disabled in production environments.
+    from langchain_huggingface import HuggingFaceEmbeddings
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=900, chunk_overlap=150)
     chunks = splitter.split_documents(documents)
@@ -104,14 +109,32 @@ def _initialize_retriever():
     return retriever, len(documents), ""
 
 
-try:
-    retriever, DOC_COUNT, INIT_ERROR = _initialize_retriever()
-except Exception as exc:
-    retriever = None
-    DOC_COUNT = 0
-    INIT_ERROR = f"Failed to initialize FAISS retriever: {exc}"
+retriever = None
+DOC_COUNT = 0
+INIT_ERROR = ""
+RAG_ENABLED = False
 
-RAG_ENABLED = retriever is not None
+
+def _ensure_retriever_initialized():
+    global retriever, DOC_COUNT, INIT_ERROR, RAG_ENABLED
+
+    if not ENABLE_RAG:
+        RAG_ENABLED = False
+        if not INIT_ERROR:
+            INIT_ERROR = "RAG disabled by ENABLE_RAG=false"
+        return
+
+    if retriever is not None or RAG_ENABLED:
+        return
+
+    try:
+        retriever, DOC_COUNT, INIT_ERROR = _initialize_retriever()
+        RAG_ENABLED = retriever is not None
+    except Exception as exc:
+        retriever = None
+        DOC_COUNT = 0
+        INIT_ERROR = f"Failed to initialize FAISS retriever: {exc}"
+        RAG_ENABLED = False
 
 
 class ChatState(TypedDict, total=False):
@@ -122,6 +145,8 @@ class ChatState(TypedDict, total=False):
 
 
 def retrieve_node(state: ChatState):
+    _ensure_retriever_initialized()
+
     if not RAG_ENABLED or retriever is None:
         return {"rag_context": "", "rag_sources": []}
 
@@ -219,6 +244,8 @@ def get_last_rag_sources(thread_id):
 
 
 def get_rag_info():
+    _ensure_retriever_initialized()
+
     return {
         "enabled": RAG_ENABLED,
         "data_dir": str(DATA_DIR),
