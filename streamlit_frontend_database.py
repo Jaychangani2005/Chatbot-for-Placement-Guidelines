@@ -63,15 +63,15 @@ add_thread(st.session_state['thread_id'])
 # **************************************** Sidebar UI *********************************
 
 st.sidebar.title('Placement Policy Assistant')
-
-rag_info = get_rag_info()
+# rag_info = get_rag_info()
 # if rag_info['enabled']:
 #     st.sidebar.success(
-#         f"FAISS knowledge base ready ({rag_info['doc_count']} document(s))")
+#         f"Guidelines loaded ({rag_info['doc_count']} document(s))")
 # else:
-#     st.sidebar.warning('Knowledge base not loaded')
-#     st.sidebar.caption(f"Reason: {rag_info['error']}")
-#     st.sidebar.caption(f"Data folder: {rag_info['data_dir']}")
+#     st.sidebar.warning('Guidelines not loaded')
+#     if rag_info.get('error'):
+#         st.sidebar.caption(f"Reason: {rag_info['error']}")
+# st.sidebar.caption(f"Data folder: {rag_info['data_dir']}")
 
 if st.sidebar.button('New Chat'):
     start_new_chat()

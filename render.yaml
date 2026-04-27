@@ -13,4 +13,4 @@ services:
       - key: CHATBOT_DB_PATH
         value: /opt/render/project/src/chatbot.db
       - key: ENABLE_RAG
-        value: "false"
+        value: "true"

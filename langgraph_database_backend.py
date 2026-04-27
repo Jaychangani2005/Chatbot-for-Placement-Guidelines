@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from pathlib import Path
 import sqlite3
 from typing import Annotated, TypedDict
@@ -14,7 +15,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR / "data")))
 DB_PATH = Path(os.getenv("CHATBOT_DB_PATH", str(BASE_DIR / "chatbot.db")))
-ENABLE_RAG = os.getenv("ENABLE_RAG", "false").lower() == "true"
+ENABLE_RAG = os.getenv("ENABLE_RAG", "true").lower() == "true"
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".rst", ".csv", ".json"}
 # DEFAULT_SYSTEM_PROMPT = (
 #     "You are CHARUSAT Placement Guidelines Assistant. Answer only using the provided "
@@ -142,19 +143,58 @@ def _build_retriever_from_documents(documents: list[Document]):
     if not documents:
         return None
 
-    # Import here to avoid loading sentence-transformers/torch on cold start
-    # when RAG is disabled in production environments.
-    from langchain_huggingface import HuggingFaceEmbeddings
+    chunks: list[Document] = []
+    chunk_size = 900
+    overlap = 150
 
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=900, chunk_overlap=150)
-    chunks = splitter.split_documents(documents)
+    for doc in documents:
+        text = doc.page_content.strip()
+        if not text:
+            continue
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
-    vectorstore = FAISS.from_documents(chunks, embeddings)
-    return vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+        start = 0
+        while start < len(text):
+            end = min(start + chunk_size, len(text))
+            chunk_text = text[start:end].strip()
+            if chunk_text:
+                chunks.append(
+                    Document(page_content=chunk_text, metadata=dict(doc.metadata))
+                )
+            if end >= len(text):
+                break
+            start = max(0, end - overlap)
+
+    if not chunks:
+        return None
+
+    class _KeywordRetriever:
+        def __init__(self, docs: list[Document], k: int = 4):
+            self.docs = docs
+            self.k = k
+
+        @staticmethod
+        def _tokens(text: str) -> set[str]:
+            return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+        def invoke(self, query: str) -> list[Document]:
+            query_tokens = self._tokens(query)
+            if not query_tokens:
+                return self.docs[: self.k]
+
+            scored: list[tuple[int, int, Document]] = []
+            for idx, doc in enumerate(self.docs):
+                doc_tokens = self._tokens(doc.page_content)
+                overlap_score = len(query_tokens.intersection(doc_tokens))
+                if overlap_score > 0:
+                    scored.append((overlap_score, -idx, doc))
+
+            if not scored:
+                return self.docs[: self.k]
+
+            scored.sort(reverse=True)
+            return [item[2] for item in scored[: self.k]]
+
+    return _KeywordRetriever(chunks, k=4)
 
 
 def _initialize_retriever():
@@ -237,12 +277,22 @@ def _build_chatbot():
             else:
                 chat_title = "New Chat"
 
+        if ENABLE_RAG and not rag_context:
+            response = AIMessage(
+                content=(
+                    "I could not retrieve relevant content from the placement guidelines for this query. "
+                    "Please rephrase your question with specific placement terms (for example: eligibility, "
+                    "one student one job, attendance, non-compliance, certifications)."
+                )
+            )
+            return {"messages": [response], "chat_title": chat_title}
+
         if rag_context:
             system_prompt = f"{DEFAULT_SYSTEM_PROMPT}\n\nRetrieved context:\n{rag_context}"
         else:
             system_prompt = (
                 f"{DEFAULT_SYSTEM_PROMPT}\n\nNo placement-guidelines context was retrieved for this turn. "
-                "Answer only from the conversation so far."
+                "Do not answer from outside knowledge. Ask the user to rephrase using policy-specific terms."
             )
 
         try:
