@@ -67,7 +67,7 @@ st.sidebar.title('Placement Policy Assistant')
 # if rag_info['enabled']:
 #     st.sidebar.success(
 #         f"Guidelines loaded ({rag_info['doc_count']} document(s))")
-# else:
+# else:c
 #     st.sidebar.warning('Guidelines not loaded')
 #     if rag_info.get('error'):
 #         st.sidebar.caption(f"Reason: {rag_info['error']}")
